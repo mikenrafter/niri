@@ -161,14 +161,10 @@ impl<'a> WindowRef<'a> {
 
     pub fn is_floating(self) -> bool {
         match self {
-            // FIXME: This means you cannot set initial configure rules based on is-floating. I'm
-            // not sure there's a good way to support it, since this matcher makes a cycle with the
-            // open-floating rule.
-            //
-            // That said, I don't think there are a lot of useful initial configure properties you
-            // may want to set through an is-floating matcher? Like, if you're configuring a
-            // specific window to open as floating, you can also set those properties in that same
-            // window rule, rather than relying on a different is-floating rule.
+            // Returns false for unmapped windows. Rule matching in ResolvedWindowRules::compute()
+            // uses a two-pass approach so that cross-property matching (e.g. `match is-floating=true
+            // { open-focused true }`) works without cycles. Direct callers outside compute() still
+            // receive false for unmapped windows, which is the correct behavior there.
             WindowRef::Unmapped(_) => false,
             WindowRef::Mapped(mapped) => mapped.is_floating(),
         }
@@ -188,16 +184,115 @@ impl ResolvedWindowRules {
 
         let mut resolved = ResolvedWindowRules::default();
 
+        // Pre-fetch data needed to replicate compute_open_floating's parent/fixed-height
+        // heuristics. MUST happen outside with_toplevel_role: both toplevel.parent() and
+        // with_states() access the Smithay surface data through the same lock that
+        // with_toplevel_role holds — calling them inside would deadlock.
+        let unmapped_heuristic = if matches!(window, WindowRef::Unmapped(_)) {
+            let has_parent = window.toplevel().parent().is_some();
+            let (surface_min, surface_max) =
+                with_states(window.toplevel().wl_surface(), |state| {
+                    let mut guard = state.cached_state.get::<SurfaceCachedState>();
+                    let current = guard.current();
+                    (current.min_size, current.max_size)
+                });
+            Some((has_parent, surface_min, surface_max))
+        } else {
+            None
+        };
+
         with_toplevel_role(window.toplevel(), |role| {
             // Ensure server_pending like in Smithay's with_pending_state().
             if role.server_pending.is_none() {
                 role.server_pending = Some(role.current_server_state().clone());
             }
 
+            // Pre-pass: compute preliminary open_floating/open_focused using the safe
+            // defaults is_floating=false and is_focused=false. Includes the same
+            // parent/fixed-height heuristics as compute_open_floating(), applied via
+            // the pre-fetched data above. These values are used in the main pass for
+            // rules that don't set the matching open_ property, enabling cross-property
+            // matching (e.g. `match is-floating=true { open-focused true }`) without
+            // cycles.
+            let (prelim_open_floating, prelim_open_focused) =
+                if let Some((has_parent, surface_min, surface_max)) = unmapped_heuristic {
+                    let mut prelim_floating: Option<bool> = None;
+                    let mut prelim_focused: Option<bool> = None;
+                    let mut prelim_min_height: Option<u16> = None;
+                    let mut prelim_max_height: Option<u16> = None;
+                    for rule in rules {
+                        let prelim_match = |m: &Match| {
+                            if let Some(at_startup) = m.at_startup {
+                                if at_startup != is_at_startup {
+                                    return false;
+                                }
+                            }
+                            window_matches(window, role, m, false, false)
+                        };
+                        if !(rule.matches.is_empty() || rule.matches.iter().any(prelim_match)) {
+                            continue;
+                        }
+                        if rule.excludes.iter().any(prelim_match) {
+                            continue;
+                        }
+                        if let Some(x) = rule.open_floating {
+                            prelim_floating = Some(x);
+                        }
+                        if let Some(x) = rule.open_focused {
+                            prelim_focused = Some(x);
+                        }
+                        if let Some(x) = rule.min_height {
+                            prelim_min_height = Some(x);
+                        }
+                        if let Some(x) = rule.max_height {
+                            prelim_max_height = Some(x);
+                        }
+                    }
+                    // Replicate compute_open_floating: explicit rule > parent > fixed-height.
+                    let effective_floating = prelim_floating.unwrap_or_else(|| {
+                        if has_parent {
+                            return true;
+                        }
+                        // Mirror apply_min_max_size (height only; the fixed-height
+                        // heuristic only checks height).
+                        let min_h = {
+                            let h = surface_min.h;
+                            if let Some(x) = prelim_min_height {
+                                let x = i32::from(x);
+                                if h == 0 { x } else { h.max(x) }
+                            } else {
+                                h
+                            }
+                        };
+                        let max_h = {
+                            let h = surface_max.h;
+                            if let Some(x) = prelim_max_height {
+                                let x = i32::from(x);
+                                if h == 0 { x } else if x > 0 { h.min(x) } else { h }
+                            } else {
+                                h
+                            }
+                        };
+                        min_h > 0 && min_h == max_h
+                    });
+                    (effective_floating, prelim_focused.unwrap_or(false))
+                } else {
+                    (false, false)
+                };
+
             let mut open_on_output = None;
             let mut open_on_workspace = None;
 
             for rule in rules {
+                // For unmapped windows, prevent same-rule cycles:
+                // - a rule with open_floating sees is_floating=false (can't depend on itself)
+                // - a rule with open_focused sees is_focused=false (same reason)
+                // All other rules see the preliminary values, enabling cross-property matches.
+                let unmapped_is_floating =
+                    if rule.open_floating.is_some() { false } else { prelim_open_floating };
+                let unmapped_is_focused =
+                    if rule.open_focused.is_some() { false } else { prelim_open_focused };
+
                 let matches = |m: &Match| {
                     if let Some(at_startup) = m.at_startup {
                         if at_startup != is_at_startup {
@@ -205,7 +300,7 @@ impl ResolvedWindowRules {
                         }
                     }
 
-                    window_matches(window, role, m)
+                    window_matches(window, role, m, unmapped_is_floating, unmapped_is_focused)
                 };
 
                 if !(rule.matches.is_empty() || rule.matches.iter().any(matches)) {
@@ -390,12 +485,22 @@ impl ResolvedWindowRules {
     }
 }
 
-fn window_matches(window: WindowRef, role: &XdgToplevelSurfaceRoleAttributes, m: &Match) -> bool {
+fn window_matches(
+    window: WindowRef,
+    role: &XdgToplevelSurfaceRoleAttributes,
+    m: &Match,
+    unmapped_is_floating: bool,
+    unmapped_is_focused: bool,
+) -> bool {
     // Must be ensured by the caller.
     let server_pending = role.server_pending.as_ref().unwrap();
 
     if let Some(is_focused) = m.is_focused {
-        if window.is_focused() != is_focused {
+        let actual = match window {
+            WindowRef::Unmapped(_) => unmapped_is_focused,
+            WindowRef::Mapped(mapped) => mapped.is_focused(),
+        };
+        if actual != is_focused {
             return false;
         }
     }
@@ -441,7 +546,11 @@ fn window_matches(window: WindowRef, role: &XdgToplevelSurfaceRoleAttributes, m:
     }
 
     if let Some(is_floating) = m.is_floating {
-        if window.is_floating() != is_floating {
+        let actual = match window {
+            WindowRef::Unmapped(_) => unmapped_is_floating,
+            WindowRef::Mapped(mapped) => mapped.is_floating(),
+        };
+        if actual != is_floating {
             return false;
         }
     }
