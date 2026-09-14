@@ -18,7 +18,7 @@ use crate::animation::Animation;
 use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::shader_element::ShaderRenderElement;
-use crate::render_helpers::shaders::{mat3_uniform, ProgramType, Shaders};
+use crate::render_helpers::shaders::{self, mat3_uniform, ProgramType, Shaders};
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::{render_to_encompassing_texture, RenderCtx, RenderTarget};
@@ -223,6 +223,7 @@ impl ClosingWindow {
         let progress = anim.value();
         let clamped_progress = anim.clamped_value().clamp(0., 1.);
 
+        shaders::ensure_custom_close_program(ctx.renderer);
         if Shaders::get(ctx.renderer)
             .program(ProgramType::Close)
             .is_some()

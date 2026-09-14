@@ -13,7 +13,7 @@ use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Size, Transfor
 
 use super::renderer::{AsGlesFrame, NiriRenderer};
 use super::shader_element::ShaderRenderElement;
-use super::shaders::{mat3_uniform, ProgramType, Shaders};
+use super::shaders::{self, mat3_uniform, ProgramType, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
 
 #[derive(Debug)]
@@ -116,6 +116,8 @@ impl ResizeRenderElement {
     }
 
     pub fn has_shader(renderer: &mut impl NiriRenderer) -> bool {
+        let gles_renderer = renderer.as_gles_renderer();
+        shaders::ensure_custom_resize_program(gles_renderer);
         Shaders::get(renderer)
             .program(ProgramType::Resize)
             .is_some()

@@ -15,7 +15,7 @@ use crate::animation::Animation;
 use crate::niri_render_elements;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenData, OffscreenRenderElement};
 use crate::render_helpers::shader_element::ShaderRenderElement;
-use crate::render_helpers::shaders::{mat3_uniform, ProgramType, Shaders};
+use crate::render_helpers::shaders::{self, mat3_uniform, ProgramType, Shaders};
 
 #[derive(Debug)]
 pub struct OpenAnimation {
@@ -63,6 +63,7 @@ impl OpenAnimation {
             .render(renderer, scale, elements)
             .context("error rendering to offscreen buffer")?;
 
+        shaders::ensure_custom_open_program(renderer);
         if Shaders::get(renderer).program(ProgramType::Open).is_some() {
             // OffscreenBuffer renders with Transform::Normal and the scale that we passed, so we
             // can assume that below.

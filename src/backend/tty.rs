@@ -840,15 +840,20 @@ impl Tty {
             shaders::init(gles_renderer);
 
             let config = self.config.borrow();
-            if let Some(src) = config.animations.window_resize.custom_shader.as_deref() {
-                shaders::set_custom_resize_program(gles_renderer, Some(src));
-            }
-            if let Some(src) = config.animations.window_close.custom_shader.as_deref() {
-                shaders::set_custom_close_program(gles_renderer, Some(src));
-            }
-            if let Some(src) = config.animations.window_open.custom_shader.as_deref() {
-                shaders::set_custom_open_program(gles_renderer, Some(src));
-            }
+            shaders::stage_custom_shader_sources(
+                gles_renderer,
+                config
+                    .animations
+                    .window_resize
+                    .custom_shader
+                    .as_deref(),
+                config
+                    .animations
+                    .window_close
+                    .custom_shader
+                    .as_deref(),
+                config.animations.window_open.custom_shader.as_deref(),
+            );
             drop(config);
 
             niri.update_shaders();

@@ -141,22 +141,25 @@ impl ResizeEdge {
 }
 
 pub fn version() -> String {
-    if let Some(v) = option_env!("NIRI_BUILD_VERSION_STRING") {
-        return String::from(v);
-    }
-
-    const MAJOR: &str = env!("CARGO_PKG_VERSION_MAJOR");
-    const MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
-    const PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
-
-    let commit =
-        option_env!("NIRI_BUILD_COMMIT").unwrap_or(git_version!(fallback = "unknown commit"));
-
-    if PATCH == "0" {
-        format!("{MAJOR}.{MINOR:0>2} ({commit})")
+    let base = if let Some(v) = option_env!("NIRI_BUILD_VERSION_STRING") {
+        String::from(v)
     } else {
-        format!("{MAJOR}.{MINOR:0>2}.{PATCH} ({commit})")
-    }
+
+        const MAJOR: &str = env!("CARGO_PKG_VERSION_MAJOR");
+        const MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
+        const PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
+
+        let commit =
+            option_env!("NIRI_BUILD_COMMIT").unwrap_or(git_version!(fallback = "unknown commit"));
+
+        if PATCH == "0" {
+            format!("{MAJOR}.{MINOR:0>2} ({commit})")
+        } else {
+            format!("{MAJOR}.{MINOR:0>2}.{PATCH} ({commit})")
+        }
+    };
+
+    format!("{base}-glsl3-beta")
 }
 
 pub fn get_monotonic_time() -> Duration {

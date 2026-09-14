@@ -8,7 +8,8 @@ uniform float niri_alpha;
 uniform float niri_scale;
 
 uniform vec2 niri_size;
-varying vec2 niri_v_coords;
+in vec2 niri_v_coords;
+out vec4 niri_fragColor;
 
 uniform vec4 shadow_color;
 uniform float sigma;
@@ -115,5 +116,5 @@ void main() {
         color = vec4(0.0, 0.2, 0.0, 0.2) + color * 0.8;
 #endif
 
-    gl_FragColor = color;
+    niri_fragColor = color;
 }

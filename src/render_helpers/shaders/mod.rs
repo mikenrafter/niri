@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::time::Instant;
 
 use glam::Mat3;
 use smithay::backend::renderer::gles::{
@@ -21,6 +22,9 @@ pub struct Shaders {
     pub custom_resize: RefCell<Option<ShaderProgram>>,
     pub custom_close: RefCell<Option<ShaderProgram>>,
     pub custom_open: RefCell<Option<ShaderProgram>>,
+    custom_resize_src: RefCell<Option<String>>,
+    custom_close_src: RefCell<Option<String>>,
+    custom_open_src: RefCell<Option<String>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -126,7 +130,7 @@ impl Shaders {
             })
             .ok();
 
-        let resize = compile_resize_program(renderer, include_str!("resize.frag"))
+        let resize = compile_resize_program(renderer, include_str!("resize.frag"), true)
             .map_err(|err| {
                 warn!("error compiling resize shader: {err:?}");
             })
@@ -159,6 +163,9 @@ impl Shaders {
             custom_resize: RefCell::new(None),
             custom_close: RefCell::new(None),
             custom_open: RefCell::new(None),
+            custom_resize_src: RefCell::new(None),
+            custom_close_src: RefCell::new(None),
+            custom_open_src: RefCell::new(None),
         }
     }
 
@@ -219,37 +226,148 @@ pub fn init(renderer: &mut GlesRenderer) {
     }
 }
 
+
+pub fn stage_custom_shader_sources(
+    renderer: &mut GlesRenderer,
+    resize: Option<&str>,
+    close: Option<&str>,
+    open: Option<&str>,
+) {
+    let shaders = Shaders::get(renderer);
+    *shaders.custom_resize_src.borrow_mut() = resize.map(str::to_owned);
+    *shaders.custom_close_src.borrow_mut() = close.map(str::to_owned);
+    *shaders.custom_open_src.borrow_mut() = open.map(str::to_owned);
+}
+
+pub fn ensure_custom_resize_program(renderer: &mut GlesRenderer) {
+    let src = {
+        let shaders = Shaders::get(renderer);
+        if shaders.custom_resize.borrow().is_some() {
+            return;
+        }
+        shaders.custom_resize_src.borrow().clone()
+    };
+    let Some(src) = src else {
+        return;
+    };
+    let bytes = src.len();
+    let started = Instant::now();
+    info!("compiling custom resize shader ({bytes} bytes)...");
+    match compile_resize_program(renderer, &src, false) {
+        Ok(program) => {
+            info!(
+                "compiled custom resize shader in {:.2?} ({bytes} bytes)",
+                started.elapsed()
+            );
+            *Shaders::get(renderer).custom_resize.borrow_mut() = Some(program);
+        }
+        Err(err) => {
+            warn!(
+                "error compiling custom resize shader after {:.2?} ({bytes} bytes): {err:?}",
+                started.elapsed()
+            );
+        }
+    }
+}
+
+pub fn ensure_custom_close_program(renderer: &mut GlesRenderer) {
+    let src = {
+        let shaders = Shaders::get(renderer);
+        if shaders.custom_close.borrow().is_some() {
+            return;
+        }
+        shaders.custom_close_src.borrow().clone()
+    };
+    let Some(src) = src else {
+        return;
+    };
+    let bytes = src.len();
+    let started = Instant::now();
+    info!("compiling custom close shader ({bytes} bytes)...");
+    match compile_close_program(renderer, &src) {
+        Ok(program) => {
+            info!(
+                "compiled custom close shader in {:.2?} ({bytes} bytes)",
+                started.elapsed()
+            );
+            *Shaders::get(renderer).custom_close.borrow_mut() = Some(program);
+        }
+        Err(err) => {
+            warn!(
+                "error compiling custom close shader after {:.2?} ({bytes} bytes): {err:?}",
+                started.elapsed()
+            );
+        }
+    }
+}
+
+pub fn ensure_custom_open_program(renderer: &mut GlesRenderer) {
+    let src = {
+        let shaders = Shaders::get(renderer);
+        if shaders.custom_open.borrow().is_some() {
+            return;
+        }
+        shaders.custom_open_src.borrow().clone()
+    };
+    let Some(src) = src else {
+        return;
+    };
+    let bytes = src.len();
+    let started = Instant::now();
+    info!("compiling custom open shader ({bytes} bytes)...");
+    match compile_open_program(renderer, &src) {
+        Ok(program) => {
+            info!(
+                "compiled custom open shader in {:.2?} ({bytes} bytes)",
+                started.elapsed()
+            );
+            *Shaders::get(renderer).custom_open.borrow_mut() = Some(program);
+        }
+        Err(err) => {
+            warn!(
+                "error compiling custom open shader after {:.2?} ({bytes} bytes): {err:?}",
+                started.elapsed()
+            );
+        }
+    }
+}
+
 fn compile_resize_program(
     renderer: &mut GlesRenderer,
     src: &str,
+    compile_debug: bool,
 ) -> Result<ShaderProgram, GlesError> {
     let mut program = include_str!("resize_prelude.frag").to_string();
     program.push_str(src);
     program.push_str(include_str!("resize_epilogue.frag"));
     program.push_str(include_str!("rounding_alpha.frag"));
 
-    ShaderProgram::compile(
-        renderer,
-        &program,
-        &[
-            UniformName::new("niri_input_to_curr_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_to_prev_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_to_next_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_size", UniformType::_2f),
-            UniformName::new("niri_geo_to_tex_prev", UniformType::Matrix3x3),
-            UniformName::new("niri_geo_to_tex_next", UniformType::Matrix3x3),
-            UniformName::new("niri_progress", UniformType::_1f),
-            UniformName::new("niri_clamped_progress", UniformType::_1f),
-            UniformName::new("niri_corner_radius", UniformType::_4f),
-            UniformName::new("niri_clip_to_geometry", UniformType::_1f),
-        ],
-        &["niri_tex_prev", "niri_tex_next"],
-    )
+    let uniforms = &[
+        UniformName::new("niri_input_to_curr_geo", UniformType::Matrix3x3),
+        UniformName::new("niri_curr_geo_to_prev_geo", UniformType::Matrix3x3),
+        UniformName::new("niri_curr_geo_to_next_geo", UniformType::Matrix3x3),
+        UniformName::new("niri_curr_geo_size", UniformType::_2f),
+        UniformName::new("niri_geo_to_tex_prev", UniformType::Matrix3x3),
+        UniformName::new("niri_geo_to_tex_next", UniformType::Matrix3x3),
+        UniformName::new("niri_progress", UniformType::_1f),
+        UniformName::new("niri_clamped_progress", UniformType::_1f),
+        UniformName::new("niri_corner_radius", UniformType::_4f),
+        UniformName::new("niri_clip_to_geometry", UniformType::_1f),
+    ];
+    let textures = &["niri_tex_prev", "niri_tex_next"];
+
+    if compile_debug {
+        ShaderProgram::compile(renderer, &program, uniforms, textures)
+    } else {
+        ShaderProgram::compile_without_debug(renderer, &program, uniforms, textures)
+    }
 }
 
 pub fn set_custom_resize_program(renderer: &mut GlesRenderer, src: Option<&str>) {
+    Shaders::get(renderer).custom_resize_src.replace(src.map(str::to_owned));
+
     let program = if let Some(src) = src {
-        match compile_resize_program(renderer, src) {
+        match compile_resize_program(renderer, src, false) {
             Ok(program) => Some(program),
             Err(err) => {
                 warn!("error compiling custom resize shader: {err:?}");
@@ -275,7 +393,7 @@ fn compile_close_program(
     program.push_str(src);
     program.push_str(include_str!("close_epilogue.frag"));
 
-    ShaderProgram::compile(
+    ShaderProgram::compile_without_debug(
         renderer,
         &program,
         &[
@@ -291,6 +409,8 @@ fn compile_close_program(
 }
 
 pub fn set_custom_close_program(renderer: &mut GlesRenderer, src: Option<&str>) {
+    Shaders::get(renderer).custom_close_src.replace(src.map(str::to_owned));
+
     let program = if let Some(src) = src {
         match compile_close_program(renderer, src) {
             Ok(program) => Some(program),
@@ -318,7 +438,7 @@ fn compile_open_program(
     program.push_str(src);
     program.push_str(include_str!("open_epilogue.frag"));
 
-    ShaderProgram::compile(
+    ShaderProgram::compile_without_debug(
         renderer,
         &program,
         &[
@@ -334,6 +454,8 @@ fn compile_open_program(
 }
 
 pub fn set_custom_open_program(renderer: &mut GlesRenderer, src: Option<&str>) {
+    Shaders::get(renderer).custom_open_src.replace(src.map(str::to_owned));
+
     let program = if let Some(src) = src {
         match compile_open_program(renderer, src) {
             Ok(program) => Some(program),
