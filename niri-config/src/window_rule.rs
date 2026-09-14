@@ -139,6 +139,14 @@ pub struct Match {
     pub is_urgent: Option<bool>,
     #[knuffel(property)]
     pub at_startup: Option<bool>,
+    #[knuffel(property)]
+    pub max_width: Option<u16>,
+    #[knuffel(property)]
+    pub max_height: Option<u16>,
+    #[knuffel(property)]
+    pub min_width: Option<u16>,
+    #[knuffel(property)]
+    pub min_height: Option<u16>,
 }
 
 #[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]

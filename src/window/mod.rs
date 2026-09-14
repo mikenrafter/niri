@@ -184,18 +184,19 @@ impl ResolvedWindowRules {
 
         let mut resolved = ResolvedWindowRules::default();
 
-        // Pre-fetch data needed to replicate compute_open_floating's parent/fixed-height
-        // heuristics. MUST happen outside with_toplevel_role: both toplevel.parent() and
-        // with_states() access the Smithay surface data through the same lock that
-        // with_toplevel_role holds — calling them inside would deadlock.
+        // Pre-fetch data needed for match predicates and compute_open_floating heuristics.
+        // MUST happen outside with_toplevel_role: both toplevel.parent() and with_states()
+        // access the Smithay surface data through the same lock that with_toplevel_role
+        // holds — calling them inside would deadlock.
+        let (surface_min, surface_max) =
+            with_states(window.toplevel().wl_surface(), |state| {
+                let mut guard = state.cached_state.get::<SurfaceCachedState>();
+                let current = guard.current();
+                (current.min_size, current.max_size)
+            });
+
         let unmapped_heuristic = if matches!(window, WindowRef::Unmapped(_)) {
             let has_parent = window.toplevel().parent().is_some();
-            let (surface_min, surface_max) =
-                with_states(window.toplevel().wl_surface(), |state| {
-                    let mut guard = state.cached_state.get::<SurfaceCachedState>();
-                    let current = guard.current();
-                    (current.min_size, current.max_size)
-                });
             Some((has_parent, surface_min, surface_max))
         } else {
             None
@@ -227,7 +228,7 @@ impl ResolvedWindowRules {
                                     return false;
                                 }
                             }
-                            window_matches(window, role, m, false, false)
+                            window_matches(window, role, m, false, false, surface_min, surface_max)
                         };
                         if !(rule.matches.is_empty() || rule.matches.iter().any(prelim_match)) {
                             continue;
@@ -300,7 +301,7 @@ impl ResolvedWindowRules {
                         }
                     }
 
-                    window_matches(window, role, m, unmapped_is_floating, unmapped_is_focused)
+                    window_matches(window, role, m, unmapped_is_floating, unmapped_is_focused, surface_min, surface_max)
                 };
 
                 if !(rule.matches.is_empty() || rule.matches.iter().any(matches)) {
@@ -491,6 +492,8 @@ fn window_matches(
     m: &Match,
     unmapped_is_floating: bool,
     unmapped_is_focused: bool,
+    surface_min: Size<i32, Logical>,
+    surface_max: Size<i32, Logical>,
 ) -> bool {
     // Must be ensured by the caller.
     let server_pending = role.server_pending.as_ref().unwrap();
@@ -557,6 +560,32 @@ fn window_matches(
 
     if let Some(is_window_cast_target) = m.is_window_cast_target {
         if window.is_window_cast_target() != is_window_cast_target {
+            return false;
+        }
+    }
+
+    if let Some(max_h) = m.max_height {
+        let h = surface_max.h;
+        if h == 0 || h > i32::from(max_h) {
+            return false;
+        }
+    }
+
+    if let Some(max_w) = m.max_width {
+        let w = surface_max.w;
+        if w == 0 || w > i32::from(max_w) {
+            return false;
+        }
+    }
+
+    if let Some(min_h) = m.min_height {
+        if surface_min.h < i32::from(min_h) {
+            return false;
+        }
+    }
+
+    if let Some(min_w) = m.min_width {
+        if surface_min.w < i32::from(min_w) {
             return false;
         }
     }
