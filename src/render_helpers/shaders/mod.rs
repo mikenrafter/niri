@@ -353,6 +353,8 @@ fn compile_resize_program(
         UniformName::new("niri_clamped_progress", UniformType::_1f),
         UniformName::new("niri_corner_radius", UniformType::_4f),
         UniformName::new("niri_clip_to_geometry", UniformType::_1f),
+        UniformName::new("niri_window_pos", UniformType::_2f),
+        UniformName::new("niri_output_size", UniformType::_2f),
     ];
     let textures = &["niri_tex_prev", "niri_tex_next"];
 
@@ -403,6 +405,15 @@ fn compile_close_program(
             UniformName::new("niri_progress", UniformType::_1f),
             UniformName::new("niri_clamped_progress", UniformType::_1f),
             UniformName::new("niri_random_seed", UniformType::_1f),
+            UniformName::new("niri_window_size", UniformType::_2f),
+            UniformName::new("niri_window_pos", UniformType::_2f),
+            UniformName::new("niri_is_tabbed", UniformType::_1f),
+            UniformName::new("niri_total_columns", UniformType::_1f),
+            UniformName::new("niri_windows_in_column", UniformType::_1f),
+            UniformName::new("niri_window_index_in_column", UniformType::_1f),
+            UniformName::new("niri_columns_in_workspace", UniformType::_1f),
+            UniformName::new("niri_column_index_in_workspace", UniformType::_1f),
+            UniformName::new("niri_output_size", UniformType::_2f),
         ],
         &["niri_tex"],
     )
@@ -448,6 +459,15 @@ fn compile_open_program(
             UniformName::new("niri_progress", UniformType::_1f),
             UniformName::new("niri_clamped_progress", UniformType::_1f),
             UniformName::new("niri_random_seed", UniformType::_1f),
+            UniformName::new("niri_window_size", UniformType::_2f),
+            UniformName::new("niri_window_pos", UniformType::_2f),
+            UniformName::new("niri_is_tabbed", UniformType::_1f),
+            UniformName::new("niri_total_columns", UniformType::_1f),
+            UniformName::new("niri_windows_in_column", UniformType::_1f),
+            UniformName::new("niri_window_index_in_column", UniformType::_1f),
+            UniformName::new("niri_columns_in_workspace", UniformType::_1f),
+            UniformName::new("niri_column_index_in_workspace", UniformType::_1f),
+            UniformName::new("niri_output_size", UniformType::_2f),
         ],
         &["niri_tex"],
     )

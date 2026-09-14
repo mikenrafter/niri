@@ -24,6 +24,16 @@ use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::{render_to_encompassing_texture, RenderCtx, RenderTarget};
 use crate::utils::transaction::TransactionBlocker;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ColumnCtx {
+    pub is_tabbed: bool,
+    pub total_columns: usize,
+    pub windows_in_column: usize,
+    pub window_index_in_column: usize,
+    pub columns_in_workspace: usize,
+    pub column_index_in_workspace: usize,
+}
+
 #[derive(Debug)]
 pub struct ClosingWindow {
     /// Contents of the window.
@@ -61,6 +71,15 @@ pub struct ClosingWindow {
 
     /// Random seed for the shader.
     random_seed: f32,
+
+    /// Column context for uniforms.
+    column_ctx: ColumnCtx,
+
+    /// View origin frozen at close start (output-relative workspace scroll).
+    view_origin: Point<f64, Logical>,
+
+    /// Output/view size frozen at close start.
+    output_size: Size<f64, Logical>,
 }
 
 niri_render_elements! {
@@ -102,6 +121,9 @@ impl ClosingWindow {
         pos: Point<f64, Logical>,
         blocker: TransactionBlocker,
         anim: Animation,
+        column_ctx: ColumnCtx,
+        view_origin: Point<f64, Logical>,
+        output_size: Size<f64, Logical>,
     ) -> anyhow::Result<Self> {
         let _span = tracy_client::span!("ClosingWindow::new");
 
@@ -154,6 +176,9 @@ impl ClosingWindow {
             blocked_out_buffer_offset,
             anim_state: AnimationState::new(blocker, anim),
             random_seed: fastrand::f32(),
+            column_ctx,
+            view_origin,
+            output_size,
         })
     }
 
@@ -228,16 +253,20 @@ impl ClosingWindow {
             .program(ProgramType::Close)
             .is_some()
         {
-            let area_loc = Vec2::new(view_rect.loc.x as f32, view_rect.loc.y as f32);
-            let area_size = Vec2::new(view_rect.size.w as f32, view_rect.size.h as f32);
+            let area_loc = Vec2::new(self.view_origin.x as f32, self.view_origin.y as f32);
+            let area_size = Vec2::new(self.output_size.w as f32, self.output_size.h as f32);
 
-            // Round to physical pixels relative to the view position. This is similar to what
-            // happens when rendering normal windows.
-            let relative = self.pos - view_rect.loc;
-            let pos = view_rect.loc + relative.to_physical_precise_round(scale).to_logical(scale);
+            // Round to physical pixels relative to the frozen view origin.
+            let relative = self.pos - self.view_origin;
+            let pos = self.view_origin
+                + relative.to_physical_precise_round(scale).to_logical(scale);
 
             let geo_loc = Vec2::new(pos.x as f32, pos.y as f32);
             let geo_size = Vec2::new(self.geo_size.w as f32, self.geo_size.h as f32);
+            let window_pos = Vec2::new(
+                (pos.x - self.view_origin.x) as f32,
+                (pos.y - self.view_origin.y) as f32,
+            );
 
             let input_to_geo = Mat3::from_scale(area_size / geo_size)
                 * Mat3::from_translation((area_loc - geo_loc) / area_size);
@@ -253,7 +282,7 @@ impl ClosingWindow {
 
             return ShaderRenderElement::new(
                 ProgramType::Close,
-                view_rect.size,
+                self.output_size,
                 None,
                 scale.x as f32,
                 1.,
@@ -264,6 +293,15 @@ impl ClosingWindow {
                     Uniform::new("niri_progress", progress as f32),
                     Uniform::new("niri_clamped_progress", clamped_progress as f32),
                     Uniform::new("niri_random_seed", self.random_seed),
+                    Uniform::new("niri_window_size", geo_size.to_array()),
+                    Uniform::new("niri_window_pos", window_pos.to_array()),
+                    Uniform::new("niri_is_tabbed", if self.column_ctx.is_tabbed { 1.0_f32 } else { 0.0 }),
+                    Uniform::new("niri_total_columns", self.column_ctx.total_columns as f32),
+                    Uniform::new("niri_windows_in_column", self.column_ctx.windows_in_column as f32),
+                    Uniform::new("niri_window_index_in_column", self.column_ctx.window_index_in_column as f32),
+                    Uniform::new("niri_columns_in_workspace", self.column_ctx.columns_in_workspace as f32),
+                    Uniform::new("niri_column_index_in_workspace", self.column_ctx.column_index_in_workspace as f32),
+                    Uniform::new("niri_output_size", area_size.to_array()),
                 ]),
                 HashMap::from([(String::from("niri_tex"), buffer.texture().clone())]),
                 Kind::Unspecified,
@@ -291,7 +329,7 @@ impl ClosingWindow {
         );
 
         let mut location = self.pos + offset;
-        location.x -= view_rect.loc.x;
+        location.x -= self.view_origin.x;
         let elem = RelocateRenderElement::from_element(
             elem,
             location.to_physical_precise_round(scale),

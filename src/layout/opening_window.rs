@@ -12,6 +12,7 @@ use smithay::backend::renderer::Texture;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
 use crate::animation::Animation;
+use crate::layout::closing_window::ColumnCtx;
 use crate::niri_render_elements;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenData, OffscreenRenderElement};
 use crate::render_helpers::shader_element::ShaderRenderElement;
@@ -22,6 +23,7 @@ pub struct OpenAnimation {
     anim: Animation,
     random_seed: f32,
     buffer: OffscreenBuffer,
+    column_ctx: ColumnCtx,
 }
 
 niri_render_elements! {
@@ -32,11 +34,12 @@ niri_render_elements! {
 }
 
 impl OpenAnimation {
-    pub fn new(anim: Animation) -> Self {
+    pub fn new(anim: Animation, column_ctx: ColumnCtx) -> Self {
         Self {
             anim,
             random_seed: fastrand::f32(),
             buffer: OffscreenBuffer::default(),
+            column_ctx,
         }
     }
 
@@ -54,6 +57,7 @@ impl OpenAnimation {
         location: Point<f64, Logical>,
         scale: Scale<f64>,
         alpha: f32,
+        output_size: Size<f64, Logical>,
     ) -> anyhow::Result<(OpeningWindowRenderElement, OffscreenData)> {
         let progress = self.anim.value();
         let clamped_progress = self.anim.clamped_value().clamp(0., 1.);
@@ -111,6 +115,15 @@ impl OpenAnimation {
                     Uniform::new("niri_progress", progress as f32),
                     Uniform::new("niri_clamped_progress", clamped_progress as f32),
                     Uniform::new("niri_random_seed", self.random_seed),
+                    Uniform::new("niri_window_size", geo_size.to_array()),
+                    Uniform::new("niri_window_pos", geo_loc.to_array()),
+                    Uniform::new("niri_is_tabbed", if self.column_ctx.is_tabbed { 1.0_f32 } else { 0.0 }),
+                    Uniform::new("niri_total_columns", self.column_ctx.total_columns as f32),
+                    Uniform::new("niri_windows_in_column", self.column_ctx.windows_in_column as f32),
+                    Uniform::new("niri_window_index_in_column", self.column_ctx.window_index_in_column as f32),
+                    Uniform::new("niri_columns_in_workspace", self.column_ctx.columns_in_workspace as f32),
+                    Uniform::new("niri_column_index_in_workspace", self.column_ctx.column_index_in_workspace as f32),
+                    Uniform::new("niri_output_size", Vec2::new(output_size.w as f32, output_size.h as f32).to_array()),
                 ]),
                 HashMap::from([(String::from("niri_tex"), texture.clone())]),
                 Kind::Unspecified,

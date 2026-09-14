@@ -8,6 +8,7 @@ use smithay::backend::renderer::element::{Element, Kind};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
+use super::closing_window::ColumnCtx;
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
 use super::opening_window::{OpenAnimation, OpeningWindowRenderElement};
 use super::shadow::Shadow;
@@ -572,14 +573,14 @@ impl<W: LayoutElement> Tile<W> {
         offset
     }
 
-    pub fn start_open_animation(&mut self) {
+    pub fn start_open_animation(&mut self, column_ctx: ColumnCtx) {
         self.open_animation = Some(OpenAnimation::new(Animation::new(
             self.clock.clone(),
             0.,
             1.,
             0.,
             self.options.animations.window_open.anim,
-        )));
+        ), column_ctx));
     }
 
     pub fn resize_animation(&self) -> Option<&Animation> {
@@ -1174,6 +1175,7 @@ impl<W: LayoutElement> Tile<W> {
                             radius,
                             clip_to_geometry,
                             win_alpha,
+                            self.view_size,
                         );
 
                         // We're drawing the resize shader, not the offscreen directly.
@@ -1389,6 +1391,7 @@ impl<W: LayoutElement> Tile<W> {
                 location,
                 scale,
                 tile_alpha,
+                self.view_size,
             ) {
                 Ok((elem, data)) => {
                     self.window().set_offscreen_data(Some(data));

@@ -8,7 +8,7 @@ use niri_ipc::{PositionChange, SizeChange, WindowLayout};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
 
-use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
+use super::closing_window::{ClosingWindow, ClosingWindowRenderElement, ColumnCtx};
 use super::scrolling::ColumnWidth;
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
 use super::workspace::{InteractiveResize, ResolvedSize};
@@ -624,8 +624,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
         };
 
         let scale = Scale::from(self.scale);
+        let view_origin = Point::from((0., 0.));
+        let output_size = self.view_size;
         let res = ClosingWindow::new(
             renderer, snapshot, scale, tile_size, tile_pos, blocker, anim,
+            ColumnCtx::default(), view_origin, output_size,
         );
         match res {
             Ok(closing) => {
@@ -694,7 +697,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return false;
         };
 
-        self.tiles[idx].start_open_animation();
+        self.tiles[idx].start_open_animation(ColumnCtx::default());
         true
     }
 

@@ -10,7 +10,7 @@ use ordered_float::NotNan;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
 
-use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
+use super::closing_window::{ClosingWindow, ClosingWindowRenderElement, ColumnCtx};
 use super::monitor::InsertPosition;
 use super::tab_indicator::{TabIndicator, TabIndicatorRenderElement, TabInfo};
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
@@ -1533,7 +1533,16 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             tile_pos.x -= offset;
         }
 
-        self.start_close_animation_for_tile(renderer, snapshot, tile_size, tile_pos, blocker);
+        let column_ctx = ColumnCtx {
+            is_tabbed: col.display_mode == ColumnDisplay::Tabbed,
+            total_columns: self.columns.len(),
+            windows_in_column: col.tiles.len(),
+            window_index_in_column: tile_idx,
+            columns_in_workspace: self.columns.len(),
+            column_index_in_workspace: col_idx,
+        };
+
+        self.start_close_animation_for_tile(renderer, snapshot, tile_size, tile_pos, blocker, column_ctx);
     }
 
     fn start_close_animation_for_tile(
@@ -1543,6 +1552,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         tile_size: Size<f64, Logical>,
         tile_pos: Point<f64, Logical>,
         blocker: TransactionBlocker,
+        column_ctx: ColumnCtx,
     ) {
         let anim = Animation::new(
             self.clock.clone(),
@@ -1559,8 +1569,11 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         };
 
         let scale = Scale::from(self.scale);
+        let view_origin = Point::from((self.view_pos(), 0.));
+        let output_size = self.view_size;
         let res = ClosingWindow::new(
-            renderer, snapshot, scale, tile_size, tile_pos, blocker, anim,
+            renderer, snapshot, scale, tile_size, tile_pos, blocker, anim, column_ctx,
+            view_origin, output_size,
         );
         match res {
             Ok(closing) => {
@@ -1573,9 +1586,13 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     }
 
     pub fn start_open_animation(&mut self, id: &W::Id) -> bool {
-        self.columns
-            .iter_mut()
-            .any(|col| col.start_open_animation(id))
+        let total_columns = self.columns.len();
+        for (col_idx, col) in self.columns.iter_mut().enumerate() {
+            if col.start_open_animation(id, col_idx, total_columns) {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn focus_left(&mut self) -> bool {
@@ -5458,10 +5475,19 @@ impl<W: LayoutElement> Column<W> {
         Rectangle::new(self.tiles_origin(), area_size)
     }
 
-    pub fn start_open_animation(&mut self, id: &W::Id) -> bool {
-        for tile in &mut self.tiles {
+    pub fn start_open_animation(&mut self, id: &W::Id, col_idx: usize, total_columns: usize) -> bool {
+        let num_tiles = self.tiles.len();
+        for (tile_idx, tile) in self.tiles.iter_mut().enumerate() {
             if tile.window().id() == id {
-                tile.start_open_animation();
+                let column_ctx = ColumnCtx {
+                    is_tabbed: self.display_mode == ColumnDisplay::Tabbed,
+                    total_columns,
+                    windows_in_column: num_tiles,
+                    window_index_in_column: tile_idx,
+                    columns_in_workspace: total_columns,
+                    column_index_in_workspace: col_idx,
+                };
+                tile.start_open_animation(column_ctx);
 
                 // Animate the appearance of the tab indicator.
                 if self.display_mode == ColumnDisplay::Tabbed

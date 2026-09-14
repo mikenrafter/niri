@@ -20,4 +20,13 @@ uniform float niri_random_seed;
 
 uniform float niri_alpha;
 uniform float niri_scale;
+uniform vec2 niri_window_size;
+uniform vec2 niri_window_pos;
+uniform float niri_is_tabbed;
+uniform float niri_total_columns;
+uniform float niri_windows_in_column;
+uniform float niri_window_index_in_column;
+uniform float niri_columns_in_workspace;
+uniform float niri_column_index_in_workspace;
+uniform vec2 niri_output_size;
 

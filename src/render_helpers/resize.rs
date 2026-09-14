@@ -33,6 +33,7 @@ impl ResizeRenderElement {
         corner_radius: CornerRadius,
         clip_to_geometry: bool,
         result_alpha: f32,
+        output_size: Size<f64, Logical>,
     ) -> Self {
         let curr_geo = area;
 
@@ -104,6 +105,8 @@ impl ResizeRenderElement {
                     Uniform::new("niri_clamped_progress", clamped_progress),
                     Uniform::new("niri_corner_radius", <[f32; 4]>::from(corner_radius)),
                     Uniform::new("niri_clip_to_geometry", clip_to_geometry),
+                    Uniform::new("niri_window_pos", curr_geo_loc.to_array()),
+                    Uniform::new("niri_output_size", Vec2::new(output_size.w as f32, output_size.h as f32).to_array()),
                 ]),
                 HashMap::from([
                     (String::from("niri_tex_prev"), texture_prev),
